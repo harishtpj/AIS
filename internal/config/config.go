@@ -9,11 +9,22 @@ import (
 
 type Config struct {
 	Server ServerConfig `yaml:"server"`
+	Services map[string]ServiceConfig `yaml:"services"`
+	Routes []RouteConfig `yaml:"routes"`
 }
 
 type ServerConfig struct {
 	Host string `yaml:"host"`
 	Port int `yaml:"port"`
+}
+
+type ServiceConfig struct {
+	URL string `yaml:"url"`
+}
+
+type RouteConfig struct {
+	Path string `yaml:"path"`
+	Service string `yaml:"service"`
 }
 
 func Load(path string) (*Config, error) {
