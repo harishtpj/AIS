@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/harishtpj/ais/internal/config"
 	"github.com/harishtpj/ais/internal/gateway"
+	"github.com/harishtpj/ais/internal/logging"
 	"github.com/spf13/cobra"
 )
 
@@ -39,7 +39,7 @@ func init() {
 }
 
 func startGateway() error {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	logger := logging.New()
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		return fmt.Errorf("load configuration: %w", err)
@@ -67,7 +67,7 @@ func startGateway() error {
 		}
 
 	case <-signalCtx.Done():
-		logger.Info("shutdown signal received")
+		logger.Info().Msg("shutdown signal received")
 	}
 
 	shutdownCtx, cancel := context.WithTimeout(
@@ -80,6 +80,6 @@ func startGateway() error {
 		return fmt.Errorf("graceful shutdown failed: %w", err)
 	}
 
-	logger.Info("AIS stopped")
+	logger.Info().Msg("AIS Stopped Successfully!")
 	return nil
 }

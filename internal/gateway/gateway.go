@@ -2,16 +2,17 @@ package gateway
 
 import (
 	"context"
-	"log/slog"
 	"net/http"
+
+	"github.com/rs/zerolog"
 )
 
 type Gateway struct {
 	server *http.Server
-	logger *slog.Logger
+	logger zerolog.Logger
 }
 
-func New(addr string, logger *slog.Logger) *Gateway {
+func New(addr string, logger zerolog.Logger) *Gateway {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -28,11 +29,13 @@ func New(addr string, logger *slog.Logger) *Gateway {
 }
 
 func (g *Gateway) Start() error {
-	g.logger.Info("HTTP sever listening", "addr", g.server.Addr)
+	g.logger.Info().
+		Str("addr", g.server.Addr).
+		Msg("HTTP sever listening")
 	return g.server.ListenAndServe()
 }	
 
 func (g *Gateway) Shutdown(ctx context.Context) error {
-	g.logger.Info("shutting down HTTP server")
+	g.logger.Info().Msg("shutting down HTTP server")
 	return g.server.Shutdown(ctx)
 }
