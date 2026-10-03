@@ -33,7 +33,7 @@ func init() {
 		&configPath,
 		"config",
 		"c",
-		"configs/ais.yaml",
+		"ais.yaml",
 		"Path to the AIS configuration file",
 	)
 
@@ -52,9 +52,12 @@ func startGateway() error {
 		return err
 	}
 
-	routes := buildRoutes(cfg)
-	requestRouter := router.New(routes)
+	routes, err := buildRoutes(cfg)
+	if err != nil {
+		return err
+	}
 
+	requestRouter := router.New(routes)
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 
 	gtway, err := gateway.New(addr, logger, requestRouter, registry, routes)
@@ -87,7 +90,7 @@ func startGateway() error {
 
 	shutdownCtx, cancel := context.WithTimeout(
 		context.Background(),
-		5 * time.Second,
+		5*time.Second,
 	)
 	defer cancel()
 
@@ -113,15 +116,20 @@ func buildRegistry(cfg *config.Config) (*service.Registry, error) {
 	return service.NewRegistry(services), nil
 }
 
-func buildRoutes(cfg *config.Config) []router.Route {
+func buildRoutes(cfg *config.Config) ([]router.Route, error) {
 	routes := make([]router.Route, 0, len(cfg.Routes))
+	paths := make(map[string]struct{})
 
 	for _, routeConfig := range cfg.Routes {
+		if _, exists := paths[routeConfig.Path]; exists {
+			return nil, fmt.Errorf("path already exists: %q", routeConfig.Path)
+		}
 		routes = append(routes, router.Route{
-			Path: routeConfig.Path,
+			Path:    routeConfig.Path,
 			Service: routeConfig.Service,
 		})
+		paths[routeConfig.Path] = struct{}{}
 	}
 
-	return routes
+	return routes, nil
 }

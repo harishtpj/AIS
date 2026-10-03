@@ -7,7 +7,7 @@ import (
 
 type Service struct {
 	Name string
-	URL *url.URL
+	URL  *url.URL
 }
 
 func New(name, rawURL string) (*Service, error) {
@@ -22,6 +22,6 @@ func New(name, rawURL string) (*Service, error) {
 
 	return &Service{
 		Name: name,
-		URL: parsedURL,
+		URL:  parsedURL,
 	}, nil
 }

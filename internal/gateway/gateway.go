@@ -1,8 +1,8 @@
 package gateway
 
 import (
-	"fmt"
 	"context"
+	"fmt"
 	"net/http"
 
 	"github.com/harishtpj/ais/internal/proxy"
@@ -12,11 +12,11 @@ import (
 )
 
 type Gateway struct {
-	server *http.Server
-	router *router.Router
+	server   *http.Server
+	router   *router.Router
 	registry *service.Registry
-	proxies map[string]*proxy.Proxy
-	logger zerolog.Logger
+	proxies  map[string]*proxy.Proxy
+	logger   zerolog.Logger
 }
 
 func New(addr string, logger zerolog.Logger, router *router.Router, registry *service.Registry, routes []router.Route) (*Gateway, error) {
@@ -32,14 +32,14 @@ func New(addr string, logger zerolog.Logger, router *router.Router, registry *se
 	}
 
 	gw := &Gateway{
-		router: router,
+		router:   router,
 		registry: registry,
-		proxies: proxies,
-		logger: logger,
+		proxies:  proxies,
+		logger:   logger,
 	}
 
 	gw.server = &http.Server{
-		Addr: addr,
+		Addr:    addr,
 		Handler: gw,
 	}
 
@@ -68,7 +68,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Str("route", route.Path).
 		Str("service", route.Service).
 		Msg("request routed")
-	
+
 	p.ServeHTTP(w, r)
 }
 
@@ -77,7 +77,7 @@ func (g *Gateway) Start() error {
 		Str("addr", g.server.Addr).
 		Msg("HTTP sever listening")
 	return g.server.ListenAndServe()
-}	
+}
 
 func (g *Gateway) Shutdown(ctx context.Context) error {
 	g.logger.Info().Msg("shutting down HTTP server")

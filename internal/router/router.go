@@ -39,5 +39,5 @@ func (r *Router) Match(req *http.Request) (*Route, error) {
 }
 
 func matches(path, prefix string) bool {
-	return prefix == "/" || path == prefix || strings.HasPrefix(path, prefix + "/")
+	return prefix == "/" || path == prefix || strings.HasPrefix(path, prefix+"/")
 }

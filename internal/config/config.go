@@ -8,14 +8,14 @@ import (
 )
 
 type Config struct {
-	Server ServerConfig `yaml:"server"`
+	Server   ServerConfig             `yaml:"server"`
 	Services map[string]ServiceConfig `yaml:"services"`
-	Routes []RouteConfig `yaml:"routes"`
+	Routes   []RouteConfig            `yaml:"routes"`
 }
 
 type ServerConfig struct {
 	Host string `yaml:"host"`
-	Port int `yaml:"port"`
+	Port int    `yaml:"port"`
 }
 
 type ServiceConfig struct {
@@ -23,7 +23,7 @@ type ServiceConfig struct {
 }
 
 type RouteConfig struct {
-	Path string `yaml:"path"`
+	Path    string `yaml:"path"`
 	Service string `yaml:"service"`
 }
 

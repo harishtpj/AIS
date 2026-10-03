@@ -6,13 +6,13 @@ import (
 )
 
 type Registry struct {
-	mutex sync.RWMutex
+	mutex    sync.RWMutex
 	services map[string]*Service
 }
 
 func NewRegistry(services []*Service) *Registry {
 	registry := &Registry{
-		services: make(map[string]*Service, len(services)),
+		services: make(map[string]*Service),
 	}
 
 	for _, service := range services {
@@ -23,8 +23,8 @@ func NewRegistry(services []*Service) *Registry {
 }
 
 func (r *Registry) Get(name string) (*Service, error) {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
+	r.mutex.RLock()
+	defer r.mutex.RUnlock()
 
 	service, ok := r.services[name]
 	if !ok {

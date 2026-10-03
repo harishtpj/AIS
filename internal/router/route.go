@@ -1,6 +1,6 @@
 package router
 
 type Route struct {
-	Path string
+	Path    string
 	Service string
 }
