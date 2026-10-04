@@ -1,0 +1,3 @@
+[submodule "vendors/gruby"]
+	path = vendors/gruby
+	url = https://github.com/zhulik/gruby.git

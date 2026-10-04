@@ -10,10 +10,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/harishtpj/ais/internal/config"
 	"github.com/harishtpj/ais/internal/gateway"
 	"github.com/harishtpj/ais/internal/logging"
 	"github.com/harishtpj/ais/internal/router"
+	"github.com/harishtpj/ais/internal/scripting"
 	"github.com/harishtpj/ais/internal/service"
 	"github.com/spf13/cobra"
 )
@@ -33,8 +33,8 @@ func init() {
 		&configPath,
 		"config",
 		"c",
-		"ais.yaml",
-		"Path to the AIS configuration file",
+		"ais.rb",
+		"Path to the AIS configuration script",
 	)
 
 	rootCmd.AddCommand(startCmd)
@@ -42,25 +42,19 @@ func init() {
 
 func startGateway() error {
 	logger := logging.New()
-	cfg, err := config.Load(configPath)
-	if err != nil {
-		return fmt.Errorf("load configuration: %w", err)
-	}
+	registry := service.NewRegistry()
+	router := router.New()
 
-	registry, err := buildRegistry(cfg)
+	rbRuntime, err := scripting.NewRuntime(registry, router)
 	if err != nil {
+		return fmt.Errorf("create scripting runtime: %w", err)
+	}
+	defer rbRuntime.Close()
+
+	if err := rbRuntime.LoadFile(configPath); err != nil {
 		return err
 	}
-
-	routes, err := buildRoutes(cfg)
-	if err != nil {
-		return err
-	}
-
-	requestRouter := router.New(routes)
-	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
-
-	gtway, err := gateway.New(addr, logger, requestRouter, registry, routes)
+	gtway, err := gateway.New(rbRuntime.Addr, logger, router, registry)
 	if err != nil {
 		return fmt.Errorf("create gateway: %w", err)
 	}
@@ -100,36 +94,4 @@ func startGateway() error {
 
 	logger.Info().Msg("AIS Stopped Successfully!")
 	return nil
-}
-
-func buildRegistry(cfg *config.Config) (*service.Registry, error) {
-	services := make([]*service.Service, 0, len(cfg.Services))
-
-	for name, serviceConfig := range cfg.Services {
-		svc, err := service.New(name, serviceConfig.URL)
-		if err != nil {
-			return nil, fmt.Errorf("create service %q: %w", name, err)
-		}
-		services = append(services, svc)
-	}
-
-	return service.NewRegistry(services), nil
-}
-
-func buildRoutes(cfg *config.Config) ([]router.Route, error) {
-	routes := make([]router.Route, 0, len(cfg.Routes))
-	paths := make(map[string]struct{})
-
-	for _, routeConfig := range cfg.Routes {
-		if _, exists := paths[routeConfig.Path]; exists {
-			return nil, fmt.Errorf("path already exists: %q", routeConfig.Path)
-		}
-		routes = append(routes, router.Route{
-			Path:    routeConfig.Path,
-			Service: routeConfig.Service,
-		})
-		paths[routeConfig.Path] = struct{}{}
-	}
-
-	return routes, nil
 }

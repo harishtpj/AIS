@@ -10,16 +10,10 @@ type Registry struct {
 	services map[string]*Service
 }
 
-func NewRegistry(services []*Service) *Registry {
-	registry := &Registry{
+func NewRegistry() *Registry {
+	return &Registry{
 		services: make(map[string]*Service),
 	}
-
-	for _, service := range services {
-		registry.services[service.Name] = service
-	}
-
-	return registry
 }
 
 func (r *Registry) Get(name string) (*Service, error) {
@@ -32,4 +26,21 @@ func (r *Registry) Get(name string) (*Service, error) {
 	}
 
 	return service, nil
+}
+
+func (r *Registry) Exists(name string) bool {
+	_, ok := r.services[name]
+	return ok
+}
+
+func (r *Registry) Register(svc *Service) error {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
+	if _, ok := r.services[svc.Name]; ok {
+		return fmt.Errorf("service already registered: %q", svc.Name)
+	}
+
+	r.services[svc.Name] = svc
+	return nil
 }

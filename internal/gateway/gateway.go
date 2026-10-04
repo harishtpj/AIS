@@ -19,16 +19,16 @@ type Gateway struct {
 	logger   zerolog.Logger
 }
 
-func New(addr string, logger zerolog.Logger, router *router.Router, registry *service.Registry, routes []router.Route) (*Gateway, error) {
-	proxies := make(map[string]*proxy.Proxy, len(routes))
+func New(addr string, logger zerolog.Logger, router *router.Router, registry *service.Registry) (*Gateway, error) {
+	proxies := make(map[string]*proxy.Proxy)
 
-	for _, route := range routes {
-		svc, err := registry.Get(route.Service)
+	for path, svcName := range router.Routes {
+		svc, err := registry.Get(svcName.Service)
 		if err != nil {
-			return nil, fmt.Errorf("create proxy for route %q: %w", route.Path, err)
+			return nil, fmt.Errorf("create proxy for route %q: %w", path, err)
 		}
 
-		proxies[route.Path] = proxy.New(route.Path, svc, logger)
+		proxies[path] = proxy.New(path, svc, logger)
 	}
 
 	gw := &Gateway{
