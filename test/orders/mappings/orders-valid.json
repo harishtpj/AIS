@@ -1,0 +1,32 @@
+{
+  "priority": 1,
+  "request": {
+    "method": "GET",
+    "url": "/orders",
+    "cookies": {
+      "orders_session": {
+        "equalTo": "alice-session"
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "service": "orders",
+      "user": "alice",
+      "orders": [
+        {
+          "id": 101,
+          "status": "processing"
+        },
+        {
+          "id": 102,
+          "status": "shipped"
+        }
+      ]
+    }
+  }
+}

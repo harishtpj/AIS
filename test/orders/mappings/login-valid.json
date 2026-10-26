@@ -1,0 +1,27 @@
+{
+  "priority": 1,
+  "request": {
+    "method": "POST",
+    "url": "/login",
+    "bodyPatterns": [
+      {
+        "equalToJson": {
+          "username": "alice",
+          "password": "orders-demo-123"
+        }
+      }
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json",
+      "Set-Cookie": "orders_session=alice-session; Path=/; HttpOnly"
+    },
+    "jsonBody": {
+      "service": "orders",
+      "message": "Login successful",
+      "user": "alice"
+    }
+  }
+}

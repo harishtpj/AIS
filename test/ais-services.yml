@@ -1,0 +1,49 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: orders
+  labels:
+    ais/discover: "true"
+    ais/service: "orders"
+    ais/auth-strategy: "session"
+    ais/port: "8080"
+spec:
+  containers:
+    - name: wiremock
+      image: docker.io/wiremock/wiremock:3.13.2
+      ports:
+        - containerPort: 8080
+          hostPort: 9001
+      volumeMounts:
+        - name: mappings
+          mountPath: /home/wiremock/mappings
+  volumes:
+    - name: mappings
+      hostPath:
+        path: ./orders/mappings
+        type: Directory
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: inventory
+  labels:
+    ais/discover: "true"
+    ais/service: "inventory"
+    ais/auth-strategy: "opaque-token"
+    ais/port: "8080"
+spec:
+  containers:
+    - name: wiremock
+      image: docker.io/wiremock/wiremock:3.13.2
+      ports:
+        - containerPort: 8080
+          hostPort: 9002
+      volumeMounts:
+        - name: mappings
+          mountPath: /home/wiremock/mappings
+  volumes:
+    - name: mappings
+      hostPath:
+        path: ./inventory/mappings
+        type: Directory

@@ -1,0 +1,28 @@
+{
+  "priority": 1,
+  "request": {
+    "method": "POST",
+    "url": "/login",
+    "bodyPatterns": [
+      {
+        "equalToJson": {
+          "username": "bob",
+          "password": "inventory-demo-123"
+        }
+      }
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "service": "inventory",
+      "message": "Login successful",
+      "user": "bob",
+      "access_token": "inv-demo-token",
+      "token_type": "Bearer"
+    }
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "priority": 1,
+  "request": {
+    "method": "GET",
+    "url": "/items",
+    "headers": {
+      "Authorization": {
+        "equalTo": "Bearer inv-demo-token"
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "service": "inventory",
+      "user": "bob",
+      "items": [
+        {
+          "id": 201,
+          "name": "Keyboard",
+          "quantity": 12
+        },
+        {
+          "id": 202,
+          "name": "Monitor",
+          "quantity": 5
+        }
+      ]
+    }
+  }
+}
