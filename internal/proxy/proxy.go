@@ -1,9 +1,14 @@
 package proxy
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net"
 	"net/http"
 	"net/http/httputil"
 
+	"github.com/harishtpj/ais/internal/responses"
 	"github.com/harishtpj/ais/internal/service"
 	"github.com/rs/zerolog"
 )
@@ -19,12 +24,33 @@ func New(routePath string, svc *service.Service, logger zerolog.Logger) *Proxy {
 			pr.SetURL(svc.URL)
 			pr.SetXForwarded()
 		},
+		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			if errors.Is(err, context.Canceled) || r.Context().Err() == context.Canceled {
+				logger.Debug().Err(err).Msg("upstream request canceled")
+				return
+			}
+
+			status := http.StatusBadGateway
+			code := "upstream_unavailable"
+			message := "The upstream service could not be reached."
+			var netErr net.Error
+			if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &netErr) && netErr.Timeout()) {
+				status = http.StatusGatewayTimeout
+				code = "upstream_timeout"
+				message = "The upstream service did not respond in time."
+			}
+
+			logger.Error().Err(err).Int("status", status).Msg("reverse proxy request failed")
+			writeError(w, status, code, message)
+		},
 	}
-	handler := http.StripPrefix(routePath, rProxy)
-	return &Proxy{
-		handler: handler,
-		logger:  logger,
+
+	var handler http.Handler = rProxy
+	if routePath != "/" {
+		handler = http.StripPrefix(routePath, rProxy)
 	}
+
+	return &Proxy{handler: handler, logger: logger}
 }
 
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -34,4 +60,10 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Msg("proxying request")
 
 	p.handler.ServeHTTP(w, r)
+}
+
+func writeError(w http.ResponseWriter, status int, code, message string) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(responses.Error{Error: code, Message: message})
 }
