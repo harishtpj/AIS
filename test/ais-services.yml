@@ -5,7 +5,8 @@ metadata:
   labels:
     ais/discover: "true"
     ais/service: "orders"
-    ais/auth-strategy: "session"
+    ais/auth-strategy: "sessions"
+    ais/auth-path: "/login"
     ais/port: "8080"
 spec:
   containers:
@@ -30,7 +31,8 @@ metadata:
   labels:
     ais/discover: "true"
     ais/service: "inventory"
-    ais/auth-strategy: "opaque-token"
+    ais/auth-strategy: "opq_tok"
+    ais/auth-path: "/login"
     ais/port: "8080"
 spec:
   containers:

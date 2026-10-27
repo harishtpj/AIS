@@ -11,42 +11,51 @@ import (
 	"strings"
 
 	"github.com/harishtpj/ais/internal/auth"
+	"github.com/harishtpj/ais/internal/responses"
 	"github.com/harishtpj/ais/internal/service"
 )
 
 func (g *Gateway) handleLogin(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	if len(parts) != 3 || parts[0] != "auth" || parts[2] != "login" {
-		http.NotFound(w, r)
+		responses.WriteError(w, http.StatusNotFound, "not_found", "The requested endpoint was not found.")
 		return
 	}
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", http.MethodPost)
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		responses.WriteError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Only POST requests are supported.")
 		return
 	}
 
 	svc, err := g.registry.Get(parts[1])
 	if err != nil || svc.AuthStrategy == service.AuthNone {
-		http.NotFound(w, r)
+		responses.WriteError(w, http.StatusNotFound, "not_found", "The requested endpoint was not found.")
 		return
 	}
 
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxLoginBody+1))
 	if err != nil || len(body) > maxLoginBody {
-		http.Error(w, "invalid login request body", http.StatusBadRequest)
+		responses.WriteError(w, http.StatusBadRequest, "invalid_request", "The login request body is invalid.")
 		return
 	}
 	var loginInput map[string]any
-	_ = json.Unmarshal(body, &loginInput)
+	if err := json.Unmarshal(body, &loginInput); err != nil {
+		responses.WriteError(w, http.StatusBadRequest, "invalid_request", "The login request body must be valid JSON.")
+		return
+	}
 	subject := firstString(loginInput, "username", "email", "user", "sub")
 
-	target := *svc.URL
-	target.Path = path.Join(strings.TrimRight(svc.URL.Path, "/"), "login")
+	baseURL := svc.TargetURL()
+	if baseURL == nil {
+		responses.WriteError(w, http.StatusBadGateway, "backend_unavailable", "The authentication backend is unavailable.")
+		return
+	}
+	target := *baseURL
+	target.Path = path.Join(strings.TrimRight(baseURL.Path, "/"), svc.AuthPath)
 	target.RawQuery = r.URL.RawQuery
 	backendReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost, target.String(), bytes.NewReader(body))
 	if err != nil {
-		http.Error(w, "could not create backend request", http.StatusBadGateway)
+		responses.WriteError(w, http.StatusBadGateway, "backend_request_failed", "The authentication request could not be created.")
 		return
 	}
 	for name, values := range r.Header {
@@ -60,13 +69,13 @@ func (g *Gateway) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := g.httpClient.Do(backendReq)
 	if err != nil {
-		http.Error(w, "authentication backend unavailable", http.StatusBadGateway)
+		responses.WriteError(w, http.StatusBadGateway, "backend_unavailable", "The authentication backend is unavailable.")
 		return
 	}
 	defer resp.Body.Close()
 	responseBody, readErr := io.ReadAll(io.LimitReader(resp.Body, maxLoginBody+1))
 	if readErr != nil || len(responseBody) > maxLoginBody {
-		http.Error(w, "invalid backend login response", http.StatusBadGateway)
+		responses.WriteError(w, http.StatusBadGateway, "invalid_backend_response", "The authentication backend returned an invalid response.")
 		return
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -92,11 +101,11 @@ func (g *Gateway) handleLogin(w http.ResponseWriter, r *http.Request) {
 			credential = firstString(payload, "access_token")
 		}
 	default:
-		http.Error(w, "unsupported backend auth strategy", http.StatusBadGateway)
+		responses.WriteError(w, http.StatusBadGateway, "unsupported_auth_strategy", "The backend authentication strategy is unsupported.")
 		return
 	}
 	if credential == "" {
-		http.Error(w, "backend login succeeded but no expected credential was returned", http.StatusBadGateway)
+		responses.WriteError(w, http.StatusBadGateway, "missing_backend_credential", "The authentication backend returned no usable credential.")
 		return
 	}
 	if subject == "" {
@@ -106,7 +115,7 @@ func (g *Gateway) handleLogin(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if subject == "" {
-		http.Error(w, "login payload or response must identify the authenticated user", http.StatusBadGateway)
+		responses.WriteError(w, http.StatusBadGateway, "missing_subject", "The login payload or response must identify the authenticated user.")
 		return
 	}
 
@@ -115,7 +124,7 @@ func (g *Gateway) handleLogin(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		g.logger.Error().Err(err).Str("service", svc.Name).Msg("could not create auth session")
-		http.Error(w, "could not create gateway session", http.StatusBadGateway)
+		responses.WriteError(w, http.StatusBadGateway, "session_creation_failed", "The gateway session could not be created.")
 		return
 	}
 

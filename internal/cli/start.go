@@ -7,9 +7,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/harishtpj/ais/internal/discovery"
 	"github.com/harishtpj/ais/internal/gateway"
 	"github.com/harishtpj/ais/internal/logging"
 	"github.com/harishtpj/ais/internal/router"
@@ -54,16 +57,21 @@ func startGateway() error {
 	if err := rbRuntime.LoadFile(configPath); err != nil {
 		return err
 	}
+	var provider *discovery.Podman
+	if mode := strings.TrimSpace(os.Getenv("AIS_DISCOVERY")); mode != "" && mode != "off" && mode != "false" {
+		if mode != "podman" {
+			return fmt.Errorf("unsupported AIS_DISCOVERY mode %q (supported: podman)", mode)
+		}
+		provider, err = discovery.NewPodman(os.Getenv("AIS_PODMAN_SOCKET"), os.Getenv("AIS_PODMAN_HOST"), logger)
+		if err != nil {
+			return fmt.Errorf("initialize Podman discovery: %w", err)
+		}
+	}
+
 	gtway, err := gateway.New(rbRuntime.Addr, logger, router, registry, rbRuntime.UnifiedAuth)
 	if err != nil {
 		return fmt.Errorf("create gateway: %w", err)
 	}
-
-	svrErr := make(chan error, 1)
-
-	go func() {
-		svrErr <- gtway.Start()
-	}()
 
 	signalCtx, stop := signal.NotifyContext(
 		context.Background(),
@@ -71,6 +79,23 @@ func startGateway() error {
 		syscall.SIGTERM,
 	)
 	defer stop()
+
+	if provider != nil {
+		interval := 5 * time.Second
+		if raw := os.Getenv("AIS_DISCOVERY_INTERVAL"); raw != "" {
+			if seconds, parseErr := strconv.Atoi(raw); parseErr == nil && seconds > 0 {
+				interval = time.Duration(seconds) * time.Second
+			} else {
+				return fmt.Errorf("AIS_DISCOVERY_INTERVAL must be a positive number of seconds")
+			}
+		}
+		go discovery.NewRunner(provider, registry, interval, logger).Run(signalCtx)
+	}
+
+	svrErr := make(chan error, 1)
+	go func() {
+		svrErr <- gtway.Start()
+	}()
 
 	select {
 	case err := <-svrErr:

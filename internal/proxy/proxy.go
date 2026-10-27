@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
@@ -21,7 +20,7 @@ type Proxy struct {
 func New(routePath string, svc *service.Service, logger zerolog.Logger) *Proxy {
 	rProxy := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
-			pr.SetURL(svc.URL)
+			pr.SetURL(svc.TargetURL())
 			pr.SetXForwarded()
 		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
@@ -41,7 +40,7 @@ func New(routePath string, svc *service.Service, logger zerolog.Logger) *Proxy {
 			}
 
 			logger.Error().Err(err).Int("status", status).Msg("reverse proxy request failed")
-			writeError(w, status, code, message)
+			responses.WriteError(w, status, code, message)
 		},
 	}
 
@@ -60,10 +59,4 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Msg("proxying request")
 
 	p.handler.ServeHTTP(w, r)
-}
-
-func writeError(w http.ResponseWriter, status int, code, message string) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(responses.Error{Error: code, Message: message})
 }

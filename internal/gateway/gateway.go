@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/harishtpj/ais/internal/auth"
 	"github.com/harishtpj/ais/internal/proxy"
+	"github.com/harishtpj/ais/internal/responses"
 	"github.com/harishtpj/ais/internal/router"
 	"github.com/harishtpj/ais/internal/service"
 	"github.com/rs/zerolog"
@@ -22,7 +24,6 @@ type Gateway struct {
 	server      *http.Server
 	router      *router.Router
 	registry    *service.Registry
-	proxies     map[string]*proxy.Proxy
 	logger      zerolog.Logger
 	unifiedAuth bool
 	authManager *auth.Manager
@@ -30,17 +31,18 @@ type Gateway struct {
 }
 
 func New(addr string, logger zerolog.Logger, router *router.Router, registry *service.Registry, unifiedAuth bool) (*Gateway, error) {
-	proxies := make(map[string]*proxy.Proxy)
-	for routePath, route := range router.RoutesSnapshot() {
-		svc, err := registry.Get(route.Service)
-		if err != nil {
-			return nil, fmt.Errorf("create proxy for route %q: %w", routePath, err)
-		}
-		proxies[routePath] = proxy.New(routePath, svc, logger)
+	if router == nil {
+		return nil, fmt.Errorf("router cannot be nil")
+	}
+	if registry == nil {
+		return nil, fmt.Errorf("service registry cannot be nil")
+	}
+	if err := validateListenAddress(addr); err != nil {
+		return nil, err
 	}
 
 	gw := &Gateway{
-		router: router, registry: registry, proxies: proxies, logger: logger,
+		router: router, registry: registry, logger: logger,
 		unifiedAuth: unifiedAuth,
 		httpClient:  &http.Client{Timeout: 10 * time.Second},
 	}
@@ -60,7 +62,12 @@ func New(addr string, logger zerolog.Logger, router *router.Router, registry *se
 		gw.authManager = manager
 	}
 
-	gw.server = &http.Server{Addr: addr, Handler: gw}
+	gw.server = &http.Server{
+		Addr:              addr,
+		Handler:           gw,
+		ReadHeaderTimeout: 5 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
 	return gw, nil
 }
 
@@ -72,26 +79,22 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	route, err := g.router.Match(r)
 	if err != nil {
-		http.Error(w, "route not found", http.StatusNotFound)
+		g.logger.Debug().Err(err).Str("path", r.URL.Path).Msg("route not found")
+		responses.WriteError(w, http.StatusNotFound, "route_not_found", "No route matches the requested path.")
 		return
 	}
-	p, ok := g.proxies[route.Path]
-	if !ok {
-		g.logger.Error().Str("route", route.Path).Msg("proxy not found")
-		http.Error(w, "bad gateway", http.StatusBadGateway)
+	svc, err := g.registry.Get(route.Service)
+	if err != nil || svc == nil || svc.URL == nil {
+		g.logger.Warn().Str("service", route.Service).Msg("route has no available backend")
+		responses.WriteError(w, http.StatusBadGateway, "service_unavailable", "The requested service is unavailable.")
 		return
 	}
 
 	if g.unifiedAuth {
-		svc, err := g.registry.Get(route.Service)
-		if err != nil {
-			http.Error(w, "service unavailable", http.StatusBadGateway)
-			return
-		}
 		if svc.AuthStrategy != service.AuthNone {
 			forwarded, err := g.requestWithBackendCredential(r, svc)
 			if err != nil {
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				responses.WriteError(w, http.StatusUnauthorized, "unauthorized", "Valid gateway credentials are required.")
 				return
 			}
 			r = forwarded
@@ -100,7 +103,19 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	g.logger.Info().Str("method", r.Method).Str("path", r.URL.Path).
 		Str("route", route.Path).Str("service", route.Service).Msg("request routed")
-	p.ServeHTTP(w, r)
+	proxy.New(route.Path, svc, g.logger).ServeHTTP(w, r)
+}
+
+func validateListenAddress(addr string) error {
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return fmt.Errorf("invalid bind address %q: %w", addr, err)
+	}
+	portNumber, err := strconv.Atoi(port)
+	if err != nil || portNumber < 1 || portNumber > 65535 {
+		return fmt.Errorf("invalid port in bind address %q: expected 1-65535", addr)
+	}
+	return nil
 }
 
 func (g *Gateway) Start() error {

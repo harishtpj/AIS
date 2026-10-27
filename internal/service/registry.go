@@ -53,3 +53,29 @@ func (r *Registry) Register(svc *Service) error {
 	r.services[svc.Name] = svc
 	return nil
 }
+
+func (r *Registry) ReplaceDiscovered(discovered map[string]*Service) error {
+	for name, svc := range discovered {
+		if svc == nil || svc.Name != name || !svc.Dynamic || svc.URL == nil {
+			return fmt.Errorf("invalid discovered service entry %q", name)
+		}
+	}
+
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
+	next := make(map[string]*Service, len(r.services)+len(discovered))
+	for name, svc := range r.services {
+		if !svc.Dynamic {
+			next[name] = svc
+		}
+	}
+	for name, svc := range discovered {
+		if existing, ok := next[name]; ok && !existing.Dynamic {
+			continue
+		}
+		next[name] = svc
+	}
+	r.services = next
+	return nil
+}
