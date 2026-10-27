@@ -2,6 +2,7 @@ package scripting
 
 import (
 	"strings"
+	"time"
 
 	"github.com/harishtpj/ais/internal/service"
 	"github.com/zhulik/gruby"
@@ -14,6 +15,8 @@ func (r *Runtime) registerBindings() {
 	ais.DefineMethod("unified_auth", r.enableUnifiedAuth, gruby.ArgsReq(1))
 	ais.DefineMethod("route", r.addRoute, gruby.ArgsReq(2))
 	ais.DefineMethod("bind", r.bind, gruby.ArgsReq(1))
+	ais.DefineMethod("policy", r.addPolicy, gruby.ArgsReq(1)|gruby.ArgsBlock())
+	ais.DefineClassMethod("current_time_epoch", r.currentTimeEpoch, gruby.ArgsNone())
 
 	hash := r.vm.Class("Hash", nil)
 	hash.DefineMethod("auth", func(vm *gruby.GRuby, self gruby.Value) (gruby.Value, gruby.Value) {
@@ -197,4 +200,8 @@ func (r *Runtime) enableUnifiedAuth(vm *gruby.GRuby, self gruby.Value) (gruby.Va
 	}
 
 	return vm.NilValue(), nil
+}
+
+func (r *Runtime) currentTimeEpoch(vm *gruby.GRuby, self gruby.Value) (gruby.Value, gruby.Value) {
+	return gruby.MustToRuby(vm, int(time.Now().Unix())), nil
 }

@@ -11,9 +11,11 @@ import (
 	"time"
 
 	"github.com/harishtpj/ais/internal/auth"
+	"github.com/harishtpj/ais/internal/geolocation"
 	"github.com/harishtpj/ais/internal/proxy"
 	"github.com/harishtpj/ais/internal/responses"
 	"github.com/harishtpj/ais/internal/router"
+	"github.com/harishtpj/ais/internal/scripting"
 	"github.com/harishtpj/ais/internal/service"
 	"github.com/rs/zerolog"
 )
@@ -21,16 +23,18 @@ import (
 const maxLoginBody = 1 << 20
 
 type Gateway struct {
-	server      *http.Server
-	router      *router.Router
-	registry    *service.Registry
-	logger      zerolog.Logger
-	unifiedAuth bool
-	authManager *auth.Manager
-	httpClient  *http.Client
+	server        *http.Server
+	router        *router.Router
+	registry      *service.Registry
+	logger        zerolog.Logger
+	unifiedAuth   bool
+	authManager   *auth.Manager
+	httpClient    *http.Client
+	policyRuntime *scripting.Runtime
+	geoResolver   *geolocation.IPAPIResolver
 }
 
-func New(addr string, logger zerolog.Logger, router *router.Router, registry *service.Registry, unifiedAuth bool) (*Gateway, error) {
+func New(addr string, logger zerolog.Logger, router *router.Router, registry *service.Registry, unifiedAuth bool, policyRuntime *scripting.Runtime) (*Gateway, error) {
 	if router == nil {
 		return nil, fmt.Errorf("router cannot be nil")
 	}
@@ -43,8 +47,10 @@ func New(addr string, logger zerolog.Logger, router *router.Router, registry *se
 
 	gw := &Gateway{
 		router: router, registry: registry, logger: logger,
-		unifiedAuth: unifiedAuth,
-		httpClient:  &http.Client{Timeout: 10 * time.Second},
+		unifiedAuth:   unifiedAuth,
+		httpClient:    &http.Client{Timeout: 10 * time.Second},
+		policyRuntime: policyRuntime,
+		geoResolver:   geolocation.NewIPAPIResolver(),
 	}
 	if unifiedAuth {
 		redisDB, err := strconv.Atoi(getEnv("REDIS_DB", "0"))
@@ -83,11 +89,41 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		responses.WriteError(w, http.StatusNotFound, "route_not_found", "No route matches the requested path.")
 		return
 	}
-	svc, err := g.registry.Get(route.Service)
+	baseService := route.Service
+	svc, err := g.registry.Get(baseService)
 	if err != nil || svc == nil || svc.URL == nil {
-		g.logger.Warn().Str("service", route.Service).Msg("route has no available backend")
+		g.logger.Warn().Str("service", baseService).Msg("route has no available backend")
 		responses.WriteError(w, http.StatusBadGateway, "service_unavailable", "The requested service is unavailable.")
 		return
+	}
+
+	if g.policyRuntime != nil {
+		clientIP := requestClientIP(r)
+		location := geolocation.Location{Source: "not_requested"}
+		if g.policyRuntime.PoliciesNeedLocation(r.URL.Path, baseService) {
+			lookupCtx, cancel := context.WithTimeout(r.Context(), 2200*time.Millisecond)
+			resolved, lookupErr := g.geoResolver.Resolve(lookupCtx, net.ParseIP(clientIP))
+			cancel()
+			location = resolved
+			if lookupErr != nil {
+				g.logger.Debug().Err(lookupErr).Str("client_ip", clientIP).Msg("geolocation unavailable; policy receives an unavailable location")
+			}
+		}
+		target, applied, policyErr := g.policyRuntime.EvaluatePolicies(r.Method, r.URL.Path, clientIP, baseService, location, time.Now())
+		if policyErr != nil {
+			g.logger.Error().Err(policyErr).Str("path", r.URL.Path).Msg("policy evaluation failed")
+			responses.WriteError(w, http.StatusInternalServerError, "policy_evaluation_failed", "The request policy could not be evaluated.")
+			return
+		}
+		if applied {
+			route.Service = target
+			svc, err = g.registry.Get(target)
+			if err != nil || svc == nil || svc.URL == nil {
+				g.logger.Warn().Str("service", target).Msg("policy selected an unavailable backend")
+				responses.WriteError(w, http.StatusBadGateway, "service_unavailable", "The selected service is unavailable.")
+				return
+			}
+		}
 	}
 
 	if g.unifiedAuth {
@@ -132,4 +168,17 @@ func (g *Gateway) Shutdown(ctx context.Context) error {
 		return g.authManager.Close()
 	}
 	return nil
+}
+
+func requestClientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err == nil {
+		if ip := net.ParseIP(host); ip != nil {
+			return ip.String()
+		}
+	}
+	if ip := net.ParseIP(strings.TrimSpace(r.RemoteAddr)); ip != nil {
+		return ip.String()
+	}
+	return ""
 }

@@ -7,8 +7,10 @@ package scripting
 import "C"
 
 import (
+	"embed"
 	"fmt"
 	"os"
+	"sync"
 	"unsafe"
 
 	"github.com/harishtpj/ais/internal/router"
@@ -18,11 +20,17 @@ import (
 
 type Runtime struct {
 	vm          *gruby.GRuby
+	vmMu        sync.Mutex
+	policyMu    sync.RWMutex
+	policies    []Policy
 	registry    *service.Registry
 	router      *router.Router
 	Addr        string
 	UnifiedAuth bool
 }
+
+//go:embed ais
+var supportFiles embed.FS
 
 func NewRuntime(registry *service.Registry, router *router.Router) (*Runtime, error) {
 	vm, err := gruby.New()
@@ -32,6 +40,18 @@ func NewRuntime(registry *service.Registry, router *router.Router) (*Runtime, er
 
 	rt := &Runtime{vm: vm, registry: registry, router: router, Addr: "localhost:8080"}
 	rt.registerBindings()
+
+	for _, name := range []string{"ais/time.rb", "ais/policy.rb"} {
+		source, readErr := supportFiles.ReadFile(name)
+		if readErr != nil {
+			vm.Close()
+			return nil, fmt.Errorf("read embedded scripting support %q: %w", name, readErr)
+		}
+		if _, evalErr := vm.LoadString(string(source)); evalErr != nil {
+			vm.Close()
+			return nil, fmt.Errorf("load embedded scripting support %q: %w", name, evalErr)
+		}
+	}
 
 	return rt, nil
 }

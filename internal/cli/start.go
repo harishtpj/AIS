@@ -57,6 +57,9 @@ func startGateway() error {
 	if err := rbRuntime.LoadFile(configPath); err != nil {
 		return err
 	}
+	if err := rbRuntime.ValidatePolicies(); err != nil {
+		return fmt.Errorf("validate policies: %w", err)
+	}
 	var provider *discovery.Podman
 	if mode := strings.TrimSpace(os.Getenv("AIS_DISCOVERY")); mode != "" && mode != "off" && mode != "false" {
 		if mode != "podman" {
@@ -68,7 +71,7 @@ func startGateway() error {
 		}
 	}
 
-	gtway, err := gateway.New(rbRuntime.Addr, logger, router, registry, rbRuntime.UnifiedAuth)
+	gtway, err := gateway.New(rbRuntime.Addr, logger, router, registry, rbRuntime.UnifiedAuth, rbRuntime)
 	if err != nil {
 		return fmt.Errorf("create gateway: %w", err)
 	}
