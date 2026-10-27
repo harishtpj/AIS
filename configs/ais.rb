@@ -1,9 +1,11 @@
 AIS.configure do
-    service :orders, 'http://localhost:9001'
-    service :inventory, 'http://localhost:9002'
+  unified_auth true
 
-    route '/orders', :orders
-    route '/inv', :inventory
+  service :orders, 'http://localhost:9001', auth: :sessions
+  service :inventory, 'http://localhost:9002', auth: :opq_tok
 
-    bind "0.0.0.0:8080"
+  route '/orders', :orders
+  route '/inv', :inventory
+
+  bind '0.0.0.0:8080'
 end

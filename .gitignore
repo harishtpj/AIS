@@ -1,2 +1,4 @@
 scratch.*
 ais
+redis-data
+.env

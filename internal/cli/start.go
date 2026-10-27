@@ -54,7 +54,7 @@ func startGateway() error {
 	if err := rbRuntime.LoadFile(configPath); err != nil {
 		return err
 	}
-	gtway, err := gateway.New(rbRuntime.Addr, logger, router, registry)
+	gtway, err := gateway.New(rbRuntime.Addr, logger, router, registry, rbRuntime.UnifiedAuth)
 	if err != nil {
 		return fmt.Errorf("create gateway: %w", err)
 	}

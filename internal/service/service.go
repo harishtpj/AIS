@@ -3,47 +3,31 @@ package service
 import (
 	"fmt"
 	"net/url"
-	"strconv"
-	"strings"
+)
+
+const (
+	AuthNone     = ""
+	AuthSessions = "sessions"
+	AuthOpaque   = "opq_tok"
 )
 
 type Service struct {
-	Name string
-	URL  *url.URL
+	Name         string
+	URL          *url.URL
+	AuthStrategy string
 }
 
-func New(name, rawURL string) (*Service, error) {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return nil, fmt.Errorf("service name cannot be empty")
-	}
-	if strings.TrimSpace(rawURL) == "" {
-		return nil, fmt.Errorf("service %q URL cannot be empty", name)
-	}
-
+func New(name, rawURL, authStrategy string) (*Service, error) {
 	parsedURL, err := url.Parse(rawURL)
 	if err != nil {
 		return nil, fmt.Errorf("parse service URL: %w", err)
 	}
-
-	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
-		return nil, fmt.Errorf("unsupported service URL scheme %q: expected http or https", parsedURL.Scheme)
+	if parsedURL.Scheme == "" || parsedURL.Host == "" {
+		return nil, fmt.Errorf("invalid service URL: %q", rawURL)
 	}
-	if parsedURL.Hostname() == "" {
-		return nil, fmt.Errorf("invalid service URL %q: hostname is required", rawURL)
-	}
-	if port := parsedURL.Port(); port != "" {
-		portNumber, err := strconv.Atoi(port)
-		if err != nil || portNumber < 1 || portNumber > 65535 {
-			return nil, fmt.Errorf("invalid port in service URL %q: expected 1-65535", rawURL)
-		}
-	}
-	if parsedURL.User != nil {
-		return nil, fmt.Errorf("service URL must not contain embedded credentials")
-	}
-	if parsedURL.RawQuery != "" || parsedURL.Fragment != "" {
-		return nil, fmt.Errorf("service URL must not contain a query string or fragment")
+	if authStrategy != AuthNone && authStrategy != AuthSessions && authStrategy != AuthOpaque {
+		return nil, fmt.Errorf("unsupported auth strategy %q (use :sessions or :opq_tok)", authStrategy)
 	}
 
-	return &Service{Name: name, URL: parsedURL}, nil
+	return &Service{Name: name, URL: parsedURL, AuthStrategy: authStrategy}, nil
 }

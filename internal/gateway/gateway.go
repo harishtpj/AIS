@@ -2,79 +2,104 @@ package gateway
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
+	"os"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/harishtpj/ais/internal/auth"
 	"github.com/harishtpj/ais/internal/proxy"
-	"github.com/harishtpj/ais/internal/responses"
 	"github.com/harishtpj/ais/internal/router"
 	"github.com/harishtpj/ais/internal/service"
 	"github.com/rs/zerolog"
 )
 
+const maxLoginBody = 1 << 20
+
 type Gateway struct {
-	server  *http.Server
-	router  *router.Router
-	proxies map[string]*proxy.Proxy
-	logger  zerolog.Logger
+	server      *http.Server
+	router      *router.Router
+	registry    *service.Registry
+	proxies     map[string]*proxy.Proxy
+	logger      zerolog.Logger
+	unifiedAuth bool
+	authManager *auth.Manager
+	httpClient  *http.Client
 }
 
-func New(addr string, logger zerolog.Logger, routes *router.Router, registry *service.Registry) (*Gateway, error) {
-	if routes == nil {
-		return nil, fmt.Errorf("router cannot be nil")
-	}
-	if registry == nil {
-		return nil, fmt.Errorf("service registry cannot be nil")
-	}
-	if err := validateListenAddress(addr); err != nil {
-		return nil, err
-	}
-
+func New(addr string, logger zerolog.Logger, router *router.Router, registry *service.Registry, unifiedAuth bool) (*Gateway, error) {
 	proxies := make(map[string]*proxy.Proxy)
-	for path, route := range routes.RoutesSnapshot() {
+	for routePath, route := range router.RoutesSnapshot() {
 		svc, err := registry.Get(route.Service)
 		if err != nil {
-			return nil, fmt.Errorf("create proxy for route %q: %w", path, err)
+			return nil, fmt.Errorf("create proxy for route %q: %w", routePath, err)
 		}
-		proxies[path] = proxy.New(path, svc, logger)
+		proxies[routePath] = proxy.New(routePath, svc, logger)
 	}
 
-	gw := &Gateway{router: routes, proxies: proxies, logger: logger}
-	gw.server = &http.Server{
-		Addr:              addr,
-		Handler:           gw,
-		ReadHeaderTimeout: 5 * time.Second,
-		IdleTimeout:       60 * time.Second,
+	gw := &Gateway{
+		router: router, registry: registry, proxies: proxies, logger: logger,
+		unifiedAuth: unifiedAuth,
+		httpClient:  &http.Client{Timeout: 10 * time.Second},
 	}
+	if unifiedAuth {
+		redisDB, err := strconv.Atoi(getEnv("REDIS_DB", "0"))
+		if err != nil {
+			return nil, fmt.Errorf("parse REDIS_DB: %w", err)
+		}
+		manager, err := auth.NewManager(
+			os.Getenv("AIS_JWT_SECRET"),
+			getEnv("REDIS_ADDR", "127.0.0.1:6379"),
+			os.Getenv("REDIS_PASS"), redisDB,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("initialize unified auth: %w", err)
+		}
+		gw.authManager = manager
+	}
+
+	gw.server = &http.Server{Addr: addr, Handler: gw}
 	return gw, nil
 }
 
 func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if g.unifiedAuth && strings.HasPrefix(r.URL.Path, "/auth/") {
+		g.handleLogin(w, r)
+		return
+	}
+
 	route, err := g.router.Match(r)
 	if err != nil {
-		g.logger.Debug().Err(err).Str("path", r.URL.Path).Msg("route not found")
-		writeError(w, http.StatusNotFound, "route_not_found", "No route matches the requested path.")
+		http.Error(w, "route not found", http.StatusNotFound)
 		return
 	}
-
 	p, ok := g.proxies[route.Path]
 	if !ok {
-		g.logger.Error().Str("route", route.Path).Msg("proxy missing for matched route")
-		writeError(w, http.StatusInternalServerError, "gateway_configuration_error", "The gateway could not handle this route.")
+		g.logger.Error().Str("route", route.Path).Msg("proxy not found")
+		http.Error(w, "bad gateway", http.StatusBadGateway)
 		return
 	}
 
-	g.logger.Info().
-		Str("method", r.Method).
-		Str("path", r.URL.Path).
-		Str("route", route.Path).
-		Str("service", route.Service).
-		Msg("request routed")
+	if g.unifiedAuth {
+		svc, err := g.registry.Get(route.Service)
+		if err != nil {
+			http.Error(w, "service unavailable", http.StatusBadGateway)
+			return
+		}
+		if svc.AuthStrategy != service.AuthNone {
+			forwarded, err := g.requestWithBackendCredential(r, svc)
+			if err != nil {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+			r = forwarded
+		}
+	}
 
+	g.logger.Info().Str("method", r.Method).Str("path", r.URL.Path).
+		Str("route", route.Path).Str("service", route.Service).Msg("request routed")
 	p.ServeHTTP(w, r)
 }
 
@@ -85,24 +110,11 @@ func (g *Gateway) Start() error {
 
 func (g *Gateway) Shutdown(ctx context.Context) error {
 	g.logger.Info().Msg("shutting down HTTP server")
-	return g.server.Shutdown(ctx)
-}
-
-func validateListenAddress(addr string) error {
-	host, port, err := net.SplitHostPort(addr)
-	if err != nil {
-		return fmt.Errorf("invalid bind address %q: %w", addr, err)
+	if err := g.server.Shutdown(ctx); err != nil {
+		return err
 	}
-	_ = host
-	portNumber, err := strconv.Atoi(port)
-	if err != nil || portNumber < 1 || portNumber > 65535 {
-		return fmt.Errorf("invalid port in bind address %q: expected 1-65535", addr)
+	if g.authManager != nil {
+		return g.authManager.Close()
 	}
 	return nil
-}
-
-func writeError(w http.ResponseWriter, status int, code, message string) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(responses.Error{Error: code, Message: message})
 }

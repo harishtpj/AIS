@@ -1,6 +1,8 @@
 package scripting
 
 import (
+	"strings"
+
 	"github.com/harishtpj/ais/internal/service"
 	"github.com/zhulik/gruby"
 )
@@ -8,7 +10,8 @@ import (
 func (r *Runtime) registerBindings() {
 	ais := r.vm.DefineClass("AIS", nil)
 	ais.DefineClassMethod("configure", r.configure, gruby.ArgsBlock())
-	ais.DefineMethod("service", r.addService, gruby.ArgsReq(2))
+	ais.DefineMethod("service", r.addService, gruby.ArgsArg(2, 1))
+	ais.DefineMethod("unified_auth", r.enableUnifiedAuth, gruby.ArgsReq(1))
 	ais.DefineMethod("route", r.addRoute, gruby.ArgsReq(2))
 	ais.DefineMethod("bind", r.bind, gruby.ArgsReq(1))
 }
@@ -51,7 +54,28 @@ func (r *Runtime) addService(vm *gruby.GRuby, self gruby.Value) (gruby.Value, gr
 		return rubyError(vm, "ArgumentError", "second argument must be a string")
 	}
 
-	svc, err := service.New(name, url)
+	authStrategy := service.AuthNone
+	if len(args) >= 3 && args[2].Type() != gruby.TypeNil {
+		if args[2].Type() != gruby.TypeHash {
+			return rubyError(vm, "ArgumentError", "third argument must be an options hash")
+		}
+		options, err := gruby.ToGo[gruby.Hash](args[2])
+		if err != nil {
+			return rubyError(vm, "ArgumentError", "could not read service options")
+		}
+		for _, key := range options.Keys() {
+			if strings.TrimPrefix(key.String(), ":") != "auth" {
+				continue
+			}
+			value := options.Get(key)
+			if value.Type() != gruby.TypeSymbol && value.Type() != gruby.TypeString {
+				return rubyError(vm, "ArgumentError", "auth must be :sessions or :opq_tok")
+			}
+			authStrategy = strings.TrimPrefix(value.String(), ":")
+		}
+	}
+
+	svc, err := service.New(name, url, authStrategy)
 	if err != nil {
 		return rubyError(vm, "RuntimeError", "failed to create service: "+err.Error())
 	}
@@ -94,5 +118,20 @@ func (r *Runtime) bind(vm *gruby.GRuby, self gruby.Value) (gruby.Value, gruby.Va
 	}
 
 	r.Addr = addr
+	return vm.NilValue(), nil
+}
+
+func (r *Runtime) enableUnifiedAuth(vm *gruby.GRuby, self gruby.Value) (gruby.Value, gruby.Value) {
+	args := vm.GetArgs()
+
+	switch args[0].Type() {
+	case gruby.TypeTrue:
+		r.UnifiedAuth = true
+	case gruby.TypeFalse:
+		r.UnifiedAuth = false
+	default:
+		return rubyError(vm, "ArgumentError", "unified_auth expects true or false")
+	}
+
 	return vm.NilValue(), nil
 }

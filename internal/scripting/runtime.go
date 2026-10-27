@@ -17,10 +17,11 @@ import (
 )
 
 type Runtime struct {
-	vm       *gruby.GRuby
-	registry *service.Registry
-	router   *router.Router
-	Addr     string
+	vm          *gruby.GRuby
+	registry    *service.Registry
+	router      *router.Router
+	Addr        string
+	UnifiedAuth bool
 }
 
 func NewRuntime(registry *service.Registry, router *router.Router) (*Runtime, error) {
@@ -29,7 +30,7 @@ func NewRuntime(registry *service.Registry, router *router.Router) (*Runtime, er
 		return nil, fmt.Errorf("initialize mruby: %w", err)
 	}
 
-	rt := &Runtime{vm, registry, router, "localhost:8080"}
+	rt := &Runtime{vm: vm, registry: registry, router: router, Addr: "localhost:8080"}
 	rt.registerBindings()
 
 	return rt, nil
