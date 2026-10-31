@@ -41,7 +41,7 @@ func NewRuntime(registry *service.Registry, router *router.Router) (*Runtime, er
 	rt := &Runtime{vm: vm, registry: registry, router: router, Addr: "localhost:8080"}
 	rt.registerBindings()
 
-	for _, name := range []string{"ais/time.rb", "ais/policy.rb"} {
+	for _, name := range []string{"ais/time.rb", "ais/policy.rb", "ais/datetime.rb"} {
 		source, readErr := supportFiles.ReadFile(name)
 		if readErr != nil {
 			vm.Close()

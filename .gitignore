@@ -1,4 +1,7 @@
 scratch.*
 ais
+!ais/
 redis-data
 .env
+docs/generated/
+.yardoc

@@ -1,0 +1,4 @@
+--markup markdown
+--output-dir docs/generated
+internal/scripting/ais
+docs/api

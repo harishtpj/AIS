@@ -1,7 +1,8 @@
 APP := ais
+DOCS_DIR := docs/generated
 GRUBY_DIR := vendors/gruby
 
-.PHONY: all build gruby clean test run
+.PHONY: all build gruby clean test run docs
 
 all: build
 
@@ -16,6 +17,11 @@ test: gruby
 
 run: gruby
 	go run ./cmd/ais start -c configs/ais.rb
+
+docs:
+	rm -rf $(GRUBY_DIR)
+	yard doc
+	python -m http.server 8081 -d docs/generated
 
 clean:
 	rm -f $(APP)
