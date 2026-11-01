@@ -272,15 +272,17 @@ The service options are:
 | `AIS_DISCOVERY_INTERVAL` | Discovery interval in seconds | `5` |
 | `AIS_PODMAN_SOCKET` | Podman Unix socket path | Derived from `XDG_RUNTIME_DIR` |
 | `AIS_PODMAN_HOST` | Host used for discovered endpoints | `127.0.0.1` |
+| `AIS_SLM_ENABLED` | Enable the Ollama SLM integration | `false` |
+| `AIS_SLM_URL` | Ollama API URL | `http://127.0.0.1:11434` |
+| `AIS_SLM_MODEL` | Ollama model used for schema suggestions | `qwen3:0.6b` |
+| `AIS_SLM_TIMEOUT` | Maximum duration of an Ollama request | `30s` |
 
 # 🛣️ Roadmap
 
 The following components are part of the planned semantic integration layer:
 
-*   OpenAPI schema ingestion using a Go OpenAPI parser
 *   Automatic backend schema registration during service discovery
 *   Ontology-assisted field matching
-*   Optional local SLM inference through an Ollama sidecar
 *   Versioned request and response translation plans
 *   Role-aware policy evaluation
 *   Rate limiting, quotas, and failover policies
