@@ -1,0 +1,57 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ais-redis
+spec:
+  containers:
+    - name: redis
+      image: docker.io/library/redis:alpine
+      command:
+        - redis-server
+        - --appendonly
+        - "yes"
+        - --appendfsync
+        - everysec
+      ports:
+        - containerPort: 6379
+          hostPort: 6379
+      volumeMounts:
+        - name: redis-data
+          mountPath: /data
+  volumes:
+    - name: redis-data
+      hostPath:
+        path: ./redis-data
+        type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ais-ollama
+spec:
+  containers:
+    - name: ollama
+      image: docker.io/ollama/ollama:latest
+      env:
+        - name: OLLAMA_HOST
+          value: "0.0.0.0:11434"
+      command:
+        - /bin/sh
+        - -c
+        - |
+          ollama serve &
+          server_pid=$!
+          until ollama list >/dev/null 2>&1; do sleep 1; done
+          ollama pull qwen3:0.6b
+          wait $server_pid
+      ports:
+        - containerPort: 11434
+          hostPort: 11434
+      volumeMounts:
+        - name: ollama-data
+          mountPath: /root/.ollama
+  volumes:
+    - name: ollama-data
+      hostPath:
+        path: ./ollama-data
+        type: DirectoryOrCreate

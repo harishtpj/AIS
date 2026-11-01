@@ -9,9 +9,9 @@ data_file = "/tmp/items.json"
 items = {}
 
 
-class Item(BaseModel):
-    name: str
-    price: float
+class BackendItem(BaseModel):
+    itemName: str
+    unitPrice: float
 
 
 def load_items():
@@ -26,15 +26,15 @@ def save_items():
         json.dump(items, file)
 
 
-@app.get("/items")
+@app.get("/items", response_model=list[BackendItem])
 def list_items():
     return list(items.values())
 
 
-@app.post("/items")
-def create_item(item: Item):
+@app.post("/items", response_model=BackendItem)
+def create_item(item: BackendItem):
     item_id = uuid.uuid4().hex
-    record = {"id": item_id, "itemName": item.name, "unitPrice": item.price}
+    record = {"itemName": item.itemName, "unitPrice": item.unitPrice}
     items[item_id] = record
     save_items()
     return record

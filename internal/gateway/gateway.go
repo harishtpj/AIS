@@ -1,10 +1,13 @@
 package gateway
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"strconv"
 	"strings"
@@ -18,6 +21,7 @@ import (
 	"github.com/harishtpj/ais/internal/router"
 	"github.com/harishtpj/ais/internal/scripting"
 	"github.com/harishtpj/ais/internal/service"
+	"github.com/harishtpj/ais/internal/translation"
 	"github.com/rs/zerolog"
 )
 
@@ -33,9 +37,10 @@ type Gateway struct {
 	httpClient    *http.Client
 	policyRuntime *scripting.Runtime
 	geoResolver   *geolocation.IPAPIResolver
+	translation   *translation.Manager
 }
 
-func New(addr string, logger zerolog.Logger, router *router.Router, registry *service.Registry, unifiedAuth bool, policyRuntime *scripting.Runtime) (*Gateway, error) {
+func New(addr string, logger zerolog.Logger, router *router.Router, registry *service.Registry, unifiedAuth bool, policyRuntime *scripting.Runtime, translator *translation.Manager) (*Gateway, error) {
 	if router == nil {
 		return nil, fmt.Errorf("router cannot be nil")
 	}
@@ -52,6 +57,7 @@ func New(addr string, logger zerolog.Logger, router *router.Router, registry *se
 		httpClient:    &http.Client{Timeout: 10 * time.Second},
 		policyRuntime: policyRuntime,
 		geoResolver:   geolocation.NewIPAPIResolver(),
+		translation:   translator,
 	}
 	if unifiedAuth {
 		redisDB, err := strconv.Atoi(config.GetEnv("REDIS_DB", "0"))
@@ -138,9 +144,68 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	backendPath := r.URL.Path
+	if route.Path != "/" {
+		backendPath = strings.TrimPrefix(backendPath, route.Path)
+		if backendPath == "" {
+			backendPath = "/"
+		}
+	}
+	if g.translation != nil {
+		body, readErr := io.ReadAll(io.LimitReader(r.Body, 10<<20))
+		if readErr != nil {
+			responses.WriteError(w, http.StatusBadRequest, "invalid_request_body", "The request body could not be read.")
+			return
+		}
+		translatedBody, applied, translateErr := g.translation.Translate(route.Service, r.Method, backendPath, body, false)
+		if translateErr != nil {
+			responses.WriteError(w, http.StatusBadRequest, "request_translation_failed", "The request could not be translated.")
+			return
+		}
+		if applied {
+			r.Body = io.NopCloser(bytes.NewReader(translatedBody))
+			r.ContentLength = int64(len(translatedBody))
+			r.Header.Set("Content-Length", strconv.Itoa(len(translatedBody)))
+		} else {
+			r.Body = io.NopCloser(bytes.NewReader(body))
+		}
+	}
+
 	g.logger.Info().Str("method", r.Method).Str("path", r.URL.Path).
 		Str("route", route.Path).Str("service", route.Service).Msg("request routed")
-	proxy.New(route.Path, svc, g.logger).ServeHTTP(w, r)
+	if g.translation == nil {
+		proxy.New(route.Path, svc, g.logger).ServeHTTP(w, r)
+		return
+	}
+	recorder := httptest.NewRecorder()
+	proxy.New(route.Path, svc, g.logger).ServeHTTP(recorder, r)
+	responseBody := recorder.Body.Bytes()
+	if recorder.Code < http.StatusOK || recorder.Code >= http.StatusMultipleChoices {
+		for name, values := range recorder.Header() {
+			for _, value := range values {
+				w.Header().Add(name, value)
+			}
+		}
+		w.WriteHeader(recorder.Code)
+		_, _ = w.Write(responseBody)
+		return
+	}
+	translatedResponse, applied, translateErr := g.translation.Translate(route.Service, r.Method, backendPath, responseBody, true)
+	if translateErr != nil {
+		responses.WriteError(w, http.StatusBadGateway, "response_translation_failed", "The backend response could not be translated.")
+		return
+	}
+	for name, values := range recorder.Header() {
+		for _, value := range values {
+			w.Header().Add(name, value)
+		}
+	}
+	if applied {
+		responseBody = translatedResponse
+		w.Header().Set("Content-Length", strconv.Itoa(len(responseBody)))
+	}
+	w.WriteHeader(recorder.Code)
+	_, _ = w.Write(responseBody)
 }
 
 func validateListenAddress(addr string) error {

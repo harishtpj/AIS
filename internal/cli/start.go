@@ -20,6 +20,8 @@ import (
 	"github.com/harishtpj/ais/internal/router"
 	"github.com/harishtpj/ais/internal/scripting"
 	"github.com/harishtpj/ais/internal/service"
+	"github.com/harishtpj/ais/internal/slm"
+	"github.com/harishtpj/ais/internal/translation"
 	"github.com/spf13/cobra"
 )
 
@@ -73,8 +75,11 @@ func startGateway() error {
 		return fmt.Errorf("validate policies: %w", err)
 	}
 	var ontologyStore *ontology.Store
+	var translator *translation.Manager
+	var document *ontology.Document
 	if strings.TrimSpace(canonicalAPIPath) != "" {
-		document, loadErr := ontology.LoadFile(canonicalAPIPath)
+		var loadErr error
+		document, loadErr = ontology.LoadFile(canonicalAPIPath)
 		if loadErr != nil {
 			return loadErr
 		}
@@ -98,6 +103,27 @@ func startGateway() error {
 		logger.Info().Str("path", canonicalAPIPath).Int("entities", len(document.Entities)).
 			Msg("canonical ontology loaded")
 	}
+	if document != nil {
+		var slmClient *slm.Client
+		if config.GetEnv("AIS_SLM_ENABLED", "false") == "true" {
+			timeout, parseErr := time.ParseDuration(config.GetEnv("AIS_SLM_TIMEOUT", "30s"))
+			if parseErr != nil {
+				return fmt.Errorf("parse AIS_SLM_TIMEOUT: %w", parseErr)
+			}
+			slmClient, err = slm.NewOllamaClient(
+				config.GetEnv("AIS_SLM_URL", "http://127.0.0.1:11434"),
+				config.GetEnv("AIS_SLM_MODEL", "qwen3:0.6b"),
+				timeout,
+			)
+			if err != nil {
+				return fmt.Errorf("initialize SLM client: %w", err)
+			}
+		}
+		translator, err = translation.NewManager(document, slmClient)
+		if err != nil {
+			return fmt.Errorf("initialize translation manager: %w", err)
+		}
+	}
 	var provider *discovery.Podman
 	if mode := strings.TrimSpace(os.Getenv("AIS_DISCOVERY")); mode != "" && mode != "off" && mode != "false" {
 		if mode != "podman" {
@@ -109,7 +135,28 @@ func startGateway() error {
 		}
 	}
 
-	gtway, err := gateway.New(rbRuntime.Addr, logger, router, registry, rbRuntime.UnifiedAuth, rbRuntime)
+	refreshTranslation := func(services map[string]*service.Service) {
+		if translator == nil {
+			return
+		}
+		if refreshErr := translator.Refresh(context.Background(), services); refreshErr != nil {
+			logger.Warn().Err(refreshErr).Msg("could not refresh OpenAPI translation plans")
+		}
+	}
+	if provider != nil {
+		discovered, discoverErr := provider.Discover(context.Background())
+		if discoverErr != nil {
+			logger.Warn().Err(discoverErr).Msg("initial service discovery failed")
+		} else if replaceErr := registry.ReplaceDiscovered(discovered); replaceErr != nil {
+			return fmt.Errorf("register discovered services: %w", replaceErr)
+		} else {
+			refreshTranslation(registry.Snapshot())
+		}
+	} else {
+		refreshTranslation(registry.Snapshot())
+	}
+
+	gtway, err := gateway.New(rbRuntime.Addr, logger, router, registry, rbRuntime.UnifiedAuth, rbRuntime, translator)
 	if err != nil {
 		return fmt.Errorf("create gateway: %w", err)
 	}
@@ -130,7 +177,7 @@ func startGateway() error {
 				return fmt.Errorf("AIS_DISCOVERY_INTERVAL must be a positive number of seconds")
 			}
 		}
-		go discovery.NewRunner(provider, registry, interval, logger).Run(signalCtx)
+		go discovery.NewRunner(provider, registry, interval, logger, refreshTranslation).Run(signalCtx)
 	}
 
 	svrErr := make(chan error, 1)

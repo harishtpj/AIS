@@ -77,6 +77,21 @@ else
     set -g failures (math $failures + 1)
 end
 
+echo "Checking AIS semantic translation..."
+set -l translated_file $tmp_dir/translated.json
+set -l translated_status (curl -sS -o $translated_file -w '%{http_code}' \
+    -H 'Content-Type: application/json' \
+    -d '{"name":"Laptop","price":1200}' \
+    $ais_url/public/items)
+if test "$translated_status" = "200"
+    echo "PASS AIS canonical request translation"
+    check_json_field $translated_file '.name == "Laptop" and .price == 1200 and .itemName == null and .unitPrice == null'
+else
+    echo "FAIL AIS canonical request translation: got $translated_status"
+    cat $translated_file
+    set -g failures (math $failures + 1)
+end
+
 echo "Checking AIS protected route..."
 check_status 401 $ais_url/session/items
 

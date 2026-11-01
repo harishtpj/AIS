@@ -2,6 +2,7 @@ scratch.*
 ais
 !ais/
 redis-data
+ollama-data
 .env
 docs/generated/
 .yardoc

@@ -9,17 +9,22 @@ import (
 )
 
 type Runner struct {
-	provider Provider
-	registry *service.Registry
-	interval time.Duration
-	logger   zerolog.Logger
+	provider  Provider
+	registry  *service.Registry
+	interval  time.Duration
+	logger    zerolog.Logger
+	onRefresh func(map[string]*service.Service)
 }
 
-func NewRunner(provider Provider, registry *service.Registry, interval time.Duration, logger zerolog.Logger) *Runner {
+func NewRunner(provider Provider, registry *service.Registry, interval time.Duration, logger zerolog.Logger, callbacks ...func(map[string]*service.Service)) *Runner {
 	if interval <= 0 {
 		interval = 5 * time.Second
 	}
-	return &Runner{provider: provider, registry: registry, interval: interval, logger: logger}
+	var onRefresh func(map[string]*service.Service)
+	if len(callbacks) > 0 {
+		onRefresh = callbacks[0]
+	}
+	return &Runner{provider: provider, registry: registry, interval: interval, logger: logger, onRefresh: onRefresh}
 }
 
 func (r *Runner) Run(ctx context.Context) {
@@ -44,6 +49,9 @@ func (r *Runner) reconcile(ctx context.Context) {
 	if err := r.registry.ReplaceDiscovered(discovered); err != nil {
 		r.logger.Error().Err(err).Msg("could not update discovered services")
 		return
+	}
+	if r.onRefresh != nil {
+		r.onRefresh(r.registry.Snapshot())
 	}
 	r.logger.Info().Int("services", len(discovered)).Msg("service discovery reconciled")
 }

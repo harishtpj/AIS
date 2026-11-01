@@ -33,6 +33,17 @@ func (r *Registry) Exists(name string) bool {
 	return ok
 }
 
+func (r *Registry) Snapshot() map[string]*Service {
+	r.mutex.RLock()
+	defer r.mutex.RUnlock()
+
+	snapshot := make(map[string]*Service, len(r.services))
+	for name, svc := range r.services {
+		snapshot[name] = svc
+	}
+	return snapshot
+}
+
 func (r *Registry) Register(svc *Service) error {
 	if svc == nil {
 		return fmt.Errorf("cannot register a nil service")

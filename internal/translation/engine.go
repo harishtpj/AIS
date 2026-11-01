@@ -11,8 +11,11 @@ type Mapping struct {
 }
 
 type Plan struct {
-	Request  []Mapping `json:"request"`
-	Response []Mapping `json:"response"`
+	Service     string    `json:"service,omitempty"`
+	Method      string    `json:"method,omitempty"`
+	BackendPath string    `json:"backend_path,omitempty"`
+	Request     []Mapping `json:"request"`
+	Response    []Mapping `json:"response"`
 }
 
 type Engine struct{}
