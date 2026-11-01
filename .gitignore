@@ -5,3 +5,4 @@ redis-data
 .env
 docs/generated/
 .yardoc
+.scratch.*

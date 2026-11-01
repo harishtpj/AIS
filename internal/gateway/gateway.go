@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/harishtpj/ais/internal/auth"
+	"github.com/harishtpj/ais/internal/config"
 	"github.com/harishtpj/ais/internal/geolocation"
 	"github.com/harishtpj/ais/internal/proxy"
 	"github.com/harishtpj/ais/internal/responses"
@@ -53,13 +54,13 @@ func New(addr string, logger zerolog.Logger, router *router.Router, registry *se
 		geoResolver:   geolocation.NewIPAPIResolver(),
 	}
 	if unifiedAuth {
-		redisDB, err := strconv.Atoi(getEnv("REDIS_DB", "0"))
+		redisDB, err := strconv.Atoi(config.GetEnv("REDIS_DB", "0"))
 		if err != nil {
 			return nil, fmt.Errorf("parse REDIS_DB: %w", err)
 		}
 		manager, err := auth.NewManager(
 			os.Getenv("AIS_JWT_SECRET"),
-			getEnv("REDIS_ADDR", "127.0.0.1:6379"),
+			config.GetEnv("REDIS_ADDR", "127.0.0.1:6379"),
 			os.Getenv("REDIS_PASS"), redisDB,
 		)
 		if err != nil {

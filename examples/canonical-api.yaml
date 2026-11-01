@@ -1,0 +1,19 @@
+version: v1
+entities:
+  - name: Item
+    fields:
+      id:
+        type: string
+        identity: true
+      name:
+        type: string
+        required: true
+        description: Display name of the item
+      price:
+        type: number
+        required: true
+      category:
+        type: string
+      created_at:
+        type: string
+        format: date-time

@@ -12,16 +12,21 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/harishtpj/ais/internal/config"
 	"github.com/harishtpj/ais/internal/discovery"
 	"github.com/harishtpj/ais/internal/gateway"
 	"github.com/harishtpj/ais/internal/logging"
+	"github.com/harishtpj/ais/internal/ontology"
 	"github.com/harishtpj/ais/internal/router"
 	"github.com/harishtpj/ais/internal/scripting"
 	"github.com/harishtpj/ais/internal/service"
 	"github.com/spf13/cobra"
 )
 
-var configPath string
+var (
+	configPath       string
+	canonicalAPIPath string
+)
 
 var startCmd = &cobra.Command{
 	Use:   "start",
@@ -38,6 +43,13 @@ func init() {
 		"c",
 		"ais.rb",
 		"Path to the AIS configuration script",
+	)
+	startCmd.Flags().StringVarP(
+		&canonicalAPIPath,
+		"canonical",
+		"A",
+		"",
+		"Path to the canonical entity YAML file",
 	)
 
 	rootCmd.AddCommand(startCmd)
@@ -59,6 +71,32 @@ func startGateway() error {
 	}
 	if err := rbRuntime.ValidatePolicies(); err != nil {
 		return fmt.Errorf("validate policies: %w", err)
+	}
+	var ontologyStore *ontology.Store
+	if strings.TrimSpace(canonicalAPIPath) != "" {
+		document, loadErr := ontology.LoadFile(canonicalAPIPath)
+		if loadErr != nil {
+			return loadErr
+		}
+		redisDB, parseErr := strconv.Atoi(config.GetEnv("AIS_ONTOLOGY_REDIS_DB", config.GetEnv("REDIS_DB", "0")))
+		if parseErr != nil {
+			return fmt.Errorf("parse ontology Redis DB: %w", parseErr)
+		}
+		ontologyStore, err = ontology.NewStore(
+			context.Background(),
+			config.GetEnv("AIS_ONTOLOGY_REDIS_ADDR", config.GetEnv("REDIS_ADDR", "127.0.0.1:6379")),
+			config.GetEnv("AIS_ONTOLOGY_REDIS_PASS", os.Getenv("REDIS_PASS")),
+			redisDB,
+		)
+		if err != nil {
+			return err
+		}
+		defer ontologyStore.Close()
+		if err := ontologyStore.SaveDocument(context.Background(), document); err != nil {
+			return fmt.Errorf("persist canonical ontology: %w", err)
+		}
+		logger.Info().Str("path", canonicalAPIPath).Int("entities", len(document.Entities)).
+			Msg("canonical ontology loaded")
 	}
 	var provider *discovery.Podman
 	if mode := strings.TrimSpace(os.Getenv("AIS_DISCOVERY")); mode != "" && mode != "off" && mode != "false" {

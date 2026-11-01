@@ -6,7 +6,6 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"os"
 	"path"
 	"strings"
 
@@ -169,11 +168,4 @@ func firstString(values map[string]any, keys ...string) string {
 		}
 	}
 	return ""
-}
-
-func getEnv(key, fallback string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return fallback
 }

@@ -49,3 +49,38 @@ spec:
       hostPath:
         path: ./inventory/mappings
         type: Directory
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ais-session-api
+  labels:
+    ais/discover: "true"
+    ais/service: "session-api"
+    ais/auth-strategy: "sessions"
+    ais/auth-path: "/login"
+    ais/port: "8080"
+spec:
+  containers:
+    - name: api
+      image: session-service
+      ports:
+        - containerPort: 8080
+          hostPort: 9003
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ais-public-api
+  labels:
+    ais/discover: "true"
+    ais/service: "public-api"
+    ais/auth-strategy: "none"
+    ais/port: "8080"
+spec:
+  containers:
+    - name: api
+      image: public-service
+      ports:
+        - containerPort: 8080
+          hostPort: 9004
